@@ -1,0 +1,24 @@
+{
+  "host": "localhost",
+  "port": "8080",
+  "rules": [
+    {
+      "name": "for socks server A",
+      "proxy_type": "socks5",
+      "proxy_ip": "localhost",
+      "port": "10080",
+      "patterns": [
+        "192.168.1.0/24"
+      ]
+    },
+    {
+      "name": "for socks server B",
+      "proxy_type": "socks5",
+      "proxy_ip": "localhost",
+      "port": "10081",
+      "patterns": [
+        "192.168.2.0/24"
+      ]
+    }
+  ]
+}
