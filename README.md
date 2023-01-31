@@ -2,7 +2,7 @@
 
 Proxy for forwarding http to socks based on rules
 
-# Usege
+# Usage
 
 0. Prepare socks proxy
 
