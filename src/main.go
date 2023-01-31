@@ -16,6 +16,15 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+var logoFigure string = `
+_   _ ____  ____  ____
+| | | |___ \/ ___||  _ \ _ __ _____  ___   _
+| |_| | __) \___ \| |_) | '__/ _ \ \/ / | | |
+|  _  |/ __/ ___) |  __/| | | (_) >  <| |_| |
+|_| |_|_____|____/|_|   |_|  \___/_/\_\\__, |
+                                       |___/
+`
+
 // https://datatracker.ietf.org/doc/html/rfc9110#section-7.6.1
 var hopByHopHeaders = []string{
 	"Proxy-Connection",
@@ -134,7 +143,6 @@ func (s *H2SProxyServer) proxyHandler(wr http.ResponseWriter, req *http.Request)
 func (s *H2SProxyServer) Run() error {
 	var handler http.Handler
 	http.HandleFunc("/", s.proxyHandler)
-	s.logger.Infof("Start H2SProxy!!! Listen [%v]...", s.profile.GetServerAddr())
 	return http.ListenAndServe(s.profile.GetServerAddr(), handler)
 }
 
@@ -167,8 +175,9 @@ func main() {
 	defer logger.Sync()
 
 	h2sProxyServer := NewH2SProxyServer(profile, logger.Sugar())
+	fmt.Println(logoFigure)
+	fmt.Printf("H2SProxy server start, listening [%v]...\n", profile.GetServerAddr())
 	if err := h2sProxyServer.Run(); err != nil {
-
 		log.Fatalf("H2SProxyServer down: %v\n", err)
 	}
 }
