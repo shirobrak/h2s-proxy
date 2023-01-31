@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/shirobrak/h2s-proxy/domain"
+	"go.uber.org/zap"
 	"golang.org/x/net/proxy"
 )
 
@@ -48,27 +49,29 @@ func copyHeader(dst, src http.Header) {
 
 type H2SProxyServer struct {
 	profile *domain.Profile
+	logger  *zap.SugaredLogger
 }
 
-func NewH2SProxyServer(profile *domain.Profile) *H2SProxyServer {
+func NewH2SProxyServer(profile *domain.Profile, logger *zap.SugaredLogger) *H2SProxyServer {
 	return &H2SProxyServer{
 		profile: profile,
+		logger:  logger,
 	}
 }
 
 func (s *H2SProxyServer) proxyHandler(wr http.ResponseWriter, req *http.Request) {
-	log.Printf("remoteAddr: %v, Method: %v, URL: %v\n", req.RemoteAddr, req.Method, req.URL)
+	s.logger.Debugf("remoteAddr: %v, Method: %v, URL: %v\n", req.RemoteAddr, req.Method, req.URL)
 
 	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
 		msg := "unsupported protocal scheme " + req.URL.Scheme
+		s.logger.Error(msg)
 		http.Error(wr, msg, http.StatusBadRequest)
-		log.Println(msg)
 		return
 	}
 
 	host, _, err := net.SplitHostPort(req.URL.Host)
 	if err != nil {
-		log.Fatalf("failed to splitHostPort: %v", err)
+		s.logger.Errorf("failed to splitHostPort: %v", err)
 		http.Error(wr, "unexpected error", http.StatusInternalServerError)
 		return
 	}
@@ -78,6 +81,7 @@ func (s *H2SProxyServer) proxyHandler(wr http.ResponseWriter, req *http.Request)
 
 	rule, err := s.profile.MatchRule(host)
 	if err != nil && err != domain.ErrNotFoundRule {
+		s.logger.Errorf("failed to match rule: %v", err)
 		http.Error(wr, "unexpected error", http.StatusInternalServerError)
 		return
 	}
@@ -90,9 +94,9 @@ func (s *H2SProxyServer) proxyHandler(wr http.ResponseWriter, req *http.Request)
 
 	var client http.Client
 	if err == nil {
-		fmt.Printf("Exec rule name: %v\n", rule.Name)
 		socksDialer, err := proxy.SOCKS5("tcp", fmt.Sprintf("%v:%v", rule.ProxyIP, rule.Port), nil, proxy.Direct)
 		if err != nil {
+			s.logger.Errorf("failed to create socksDailer: %v", err)
 			http.Error(wr, "unexpected error", http.StatusInternalServerError)
 			return
 		}
@@ -102,12 +106,15 @@ func (s *H2SProxyServer) proxyHandler(wr http.ResponseWriter, req *http.Request)
 		client = http.Client{
 			Transport: &tr,
 		}
+		s.logger.Infow("proxy", "rule", rule.Name, "url", req.URL, "proxyType", rule.ProxyType, "proxyIP", rule.ProxyIP, "proxyPort", rule.Port)
 	} else {
 		// err == domain.ErrNotFoundRule
 		client = http.Client{}
+		s.logger.Infow("proxy", "rule", "default", "url", req.URL)
 	}
 	res, err := client.Do(req)
 	if err != nil {
+		s.logger.Error("failed to do req: %v", err)
 		http.Error(wr, "unexpected error", http.StatusInternalServerError)
 		return
 	}
@@ -118,6 +125,7 @@ func (s *H2SProxyServer) proxyHandler(wr http.ResponseWriter, req *http.Request)
 	wr.WriteHeader(res.StatusCode)
 	_, err = io.Copy(wr, res.Body)
 	if err != nil {
+		s.logger.Error("failed to copy body: %v", err)
 		http.Error(wr, "unexpected error", http.StatusInternalServerError)
 		return
 	}
@@ -126,7 +134,7 @@ func (s *H2SProxyServer) proxyHandler(wr http.ResponseWriter, req *http.Request)
 func (s *H2SProxyServer) Run() error {
 	var handler http.Handler
 	http.HandleFunc("/", s.proxyHandler)
-	fmt.Printf("Start H2SProxy!!! Listen [%v]...\n", s.profile.GetServerAddr())
+	s.logger.Infof("Start H2SProxy!!! Listen [%v]...", s.profile.GetServerAddr())
 	return http.ListenAndServe(s.profile.GetServerAddr(), handler)
 }
 
@@ -152,8 +160,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to load profile: %v\n", err)
 	}
-	h2sProxyServer := NewH2SProxyServer(profile)
+	logger, err := zap.NewProduction()
+	if err != nil {
+		log.Fatalf("failed to create logger: %v", err)
+	}
+	defer logger.Sync()
+
+	h2sProxyServer := NewH2SProxyServer(profile, logger.Sugar())
 	if err := h2sProxyServer.Run(); err != nil {
+
 		log.Fatalf("H2SProxyServer down: %v\n", err)
 	}
 }
